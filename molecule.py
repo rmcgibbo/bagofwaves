@@ -1,6 +1,6 @@
 import os
 import tempfile
-import subprocess
+import subprocess32 as subprocess
 from distutils.spawn import find_executable
 
 from rdkit import Chem
@@ -29,11 +29,23 @@ def protonate(mol, pH=7.4):
     assert babel is not None
     os.environ['BABEL_LIBDIR'] = os.path.join(os.path.dirname(babel), '..', 'lib', 'openbabel', '2.3.2')
     os.environ['BABEL_DATADIR'] = os.path.join(os.path.dirname(babel), '..', 'share', 'openbabel', '2.3.2')
-    comm = subprocess.Popen([babel, '-o', 'sdf', '-i', 'sdf', '-p', str(pH)],
+
+    # obabel's pH conversion can _hang_ (spin-lock) indefinitely when converting
+    # sdf->sdf with -p 7.4, but mol2 output appears to fix the problem.
+    comm = subprocess.Popen([babel, '-i', 'sdf', '-o', 'mol2', '-p', str(pH)],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = comm.communicate(Chem.MolToMolBlock(mol, includeStereo=True))
-    assert stderr.strip() == '1 molecule converted'
-    return Chem.MolFromMolBlock(stdout)
+    stdout, stderr = comm.communicate(Chem.MolToMolBlock(mol, includeStereo=True), timeout=10)
+    if stderr.strip() != '1 molecule converted':
+        raise ValueError('obabel error: %s' % stderr)
+    
+    molout = Chem.MolFromMol2Block(stdout, sanitize=True, removeHs=False)
+    if molout is None:
+        # some molecules fail to sanitize
+        molout = Chem.MolFromMol2Block(stdout, sanitize=False, removeHs=False)
+    if molout.GetNumAtoms() == mol.GetNumAtoms():
+        moutout = mol
+
+    return molout
 
 
 def mol2xyz(mol):
@@ -67,3 +79,10 @@ def qcheminpfile(mol, comment=''):
         '$end', ''
     ])
     return '\n'.join(lines)
+
+
+#if __name__ == '__main__':
+#    mol = cid2mol('3990423')
+#    print mol2xyz(mol)
+#    import IPython as ip
+#    ip.embed()

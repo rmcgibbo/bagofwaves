@@ -8,7 +8,7 @@ while true; do
     TEMPDIR=`mktemp -d`
     cd $TEMPDIR
     fab --fabfile=$THISDIR/fabfile.py generate_qchemfile
-    fab --fabfile=$THISDIR/fabfile.py run_qchem
+    qchem qchemfile.dat calculation.out
     fab --fabfile=$THISDIR/fabfile.py upload
     cd $THISDIR
     rm -rf $TEMPDIR

@@ -39,8 +39,10 @@ def connect_mongo():
 
 @task
 def interact():
-    import IPython as ip
-    ip.embed()
+    cid = 7205907
+    qcfile = qcheminpfile(protonate(cid2mol(cid)), comment=cid)
+    # import IPython as ip
+    # ip.embed()
 
 def upload_to_s3(bucket, prefix, filename):
     k = Key(bucket)
@@ -88,18 +90,13 @@ def generate_qchemfile():
     cid = record['cid']
     print('Begining CID', cid)
     qcfile = qcheminpfile(protonate(cid2mol(cid)), comment=cid)
+    print('Generated qchemfile for CID', cid)
 
     with open(JOBLOCK, 'w') as f:
         f.write(str(record['_id']))
 
     with open(INPUTFILE, 'w') as f:
         f.write(qcfile)
-
-
-@task
-def run_qchem():
-    local('qchem qchemfile.dat calculation.out')
-
 
 @task
 def upload():
