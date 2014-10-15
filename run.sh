@@ -1,7 +1,8 @@
-conda create --yes -n cheminf -c https://conda.binstar.org/rmcgibbo rmcgibbo-cheminf
+# conda create --yes -n cheminf -c https://conda.binstar.org/rmcgibbo rmcgibbo-cheminf
+set -e
 source activate cheminf
 
-THISDIR=`pwd`
+THISDIR=`python2 -c "import os; print os.path.abspath(os.path.dirname('$0'))"`
 
 while true; do
     TEMPDIR=`mktemp -d`

@@ -1,3 +1,4 @@
+from __future__ import print_function
 import os
 from datetime import datetime
 import json
@@ -46,8 +47,10 @@ def upload_to_s3(bucket, prefix, filename):
     if not filename.endswith('.gz'):
         local('gzip %s' % filename)
         filename = filename + '.gz'
+
     k.key = os.path.join(prefix, filename)
     k.set_contents_from_filename(filename)
+    print('%s -> s3://%s' % (filename, k.key))
 
 
 #################################################################
@@ -77,11 +80,13 @@ def generate_qchemfile():
                              "started": datetime.now()}})
 
         if record is None:
+            print('NO REMAINING JOBS. EXITING')
             exit(1)
         return record
 
     record = get_cid()
     cid = record['cid']
+    print('Begining CID', cid)
     qcfile = qcheminpfile(protonate(cid2mol(cid)), comment=cid)
 
     with open(JOBLOCK, 'w') as f:
