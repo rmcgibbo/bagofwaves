@@ -62,15 +62,14 @@ def upload_to_s3(bucket, prefix, filename):
 def initialize_database():
     records = json.load(urlopen(PUBCHEM_ASSAY))
     cids = records['InformationList']['Information'][0]['CID']
-    cids = cids[0:10]
+
+    # DEBUGGING
+    cids = cids[100:]
 
     cursor = connect_mongo()
     for i, cid in enumerate(cids):
         cursor.insert({'cid': cid, 'status': 'NEW'})
 
-        # DEBUGGING
-        if i >= 10:
-            break
 
 @task
 def generate_qchemfile():
