@@ -1,0 +1,112 @@
+#!/usr/bin/env python
+from __future__ import print_function, absolute_import
+import os
+import shutil
+import argparse
+from distutils.spawn import find_executable
+import subprocess32 as subprocess
+
+from qchem_utils.qchem import QChem
+from rdkit_utils.serial import MolReader
+from mongo_task.utils import enter_temp_directory
+from rdkit import Chem
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('sdffile')
+    parser.add_argument('qcout')
+    args = parser.parse_args()
+
+    with MolReader().open(args.sdffile) as f:
+        mol = next(iter(f))
+
+    mol = protonate(mol)
+
+    TEMP_XYZ = '%s.in' % args.sdffile
+    os.environ['QCCMD'] = find_executable('qchem')
+    # with enter_temp_directory():
+    with open(TEMP_XYZ, 'w') as f:
+        f.write(qcin(mol))
+        
+    qchem = QChem(TEMP_XYZ, clean=False)
+    os.makedirs(qchem.qcdir)
+
+    qchem.sp()
+    shutil.copy(qchem.qcout, args.qcout)
+
+    if not qchem_sucess(qchem.qcout):
+        raise RuntimeError('QChem Failure!')
+
+
+def qchem_sucess(qcout):
+    with open(qcout) as f:
+        for line in f:
+            if '*** MISSION COMPLETED -- STARFLEET OUT ***' in line:
+                return True
+    return False
+
+
+def protonate(mol, pH=7.4):
+    babel = find_executable('obabel')
+    assert babel is not None
+    os.environ['BABEL_LIBDIR'] = os.path.join(os.path.dirname(babel), '..', 'lib', 'openbabel', '2.3.2')
+    os.environ['BABEL_DATADIR'] = os.path.join(os.path.dirname(babel), '..', 'share', 'openbabel', '2.3.2')
+
+    # obabel's pH conversion can _hang_ (spin-lock) indefinitely when converting
+    # sdf->sdf with -p 7.4, but mol2 output appears to fix the problem.
+    comm = subprocess.Popen([babel, '-i', 'sdf', '-o', 'mol2', '-p', str(pH)],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = comm.communicate(Chem.MolToMolBlock(mol, includeStereo=True), timeout=10)
+    if stderr.strip() != '1 molecule converted':
+        raise ValueError('obabel error: %s' % stderr)
+
+    molout = Chem.MolFromMol2Block(stdout, sanitize=True, removeHs=False)
+    if molout is None:
+        # some molecules fail to sanitize
+        molout = Chem.MolFromMol2Block(stdout, sanitize=False, removeHs=False)
+    if molout.GetNumAtoms() == mol.GetNumAtoms():
+        molout = mol
+
+    return molout
+
+
+def qcin(mol, comment=''):
+    def mol2xyz(mol):
+        conf = mol.GetConformer()
+        charge = sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
+        spin = (sum(atom.GetAtomicNum() for atom in mol.GetAtoms()) + charge) % 2
+        mult = int(2*spin + 1)
+        mult = 2
+
+        lines = []
+        lines.append('%s %s' % (charge, mult))
+        for i, atom in enumerate(mol.GetAtoms()):
+            pos = conf.GetAtomPosition(i)
+            lines.append('%4s %10.5f %10.5f %10.5f' % (
+                    atom.GetSymbol(), pos.x, pos.y, pos.z))
+        return lines
+
+    lines = ['$comment', str(comment), '$end', '']
+    lines.extend(['$molecule'] + mol2xyz(mol) + ['$end', ''])
+
+    lines.extend([
+        '$rem',
+        'jobtype          sp',
+        'exchange         hf',
+        'basis            6-31G*',
+        'print_orbitals   true',
+        'molden_format    true',
+        'symmetry         off',
+        'incdft           false',
+        'incfock          0',
+        'sym_ignore       true',
+        'unrestricted     true',
+        '$end', ''
+    ])
+    return '\n'.join(lines)
+
+
+
+if __name__ == '__main__':
+    main()

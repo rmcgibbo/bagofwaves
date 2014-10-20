@@ -1,0 +1,36 @@
+#!/usr/bin/env python
+from __future__ import print_function, absolute_import
+import json
+import pubchem_utils
+import traceback
+import argparse
+from six.moves.urllib.error import HTTPError
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('mongotask_record', type=json.loads)
+    parser.add_argument('output')
+    args = parser.parse_args()
+
+    cid = args.mongotask_record['cid']
+    download_cid(cid, args.output)
+
+
+def download_cid(cid, filename):
+    pc = pubchem_utils.PubChem()
+
+    try:
+        print('Downloading CID %s...' % cid)
+        pc.get_record(cid, filename=filename, use_3d=True)
+    except HTTPError as e:
+        traceback.print_exc(limit=1)
+        if e.code == 404:
+            print('Resolving parent CID...')
+            pcid = next(iter(pc.get_parent_cids([cid])))
+            return download_cid(pcid, filename)
+    print('Output (SDF) saved to %s' % filename)
+
+
+if __name__ == '__main__':
+    main()
