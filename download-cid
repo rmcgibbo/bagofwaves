@@ -8,7 +8,6 @@ the structure of the parent compound.
 
 """
 from __future__ import print_function, absolute_import
-import json
 import pubchem_utils
 import traceback
 import argparse

@@ -7,14 +7,16 @@ Run a single-point HF calculation on a single compound SDF file
 """
 from __future__ import print_function, absolute_import
 import os
+from uuid import uuid4
 import shutil
 import argparse
+import itertools
+import warnings
 from distutils.spawn import find_executable
 import subprocess32 as subprocess
 
 from qchem_utils.qchem import QChem
 from rdkit_utils.serial import MolReader
-from mongo_task.utils import enter_temp_directory
 from rdkit import Chem
 
 
@@ -24,18 +26,19 @@ def main():
     parser.add_argument('qcout')
     args = parser.parse_args()
 
-    with MolReader().open(args.sdffile) as f:
+    with MolReader(remove_salts=False).open(args.sdffile) as f:
         mol = next(iter(f))
 
     mol = protonate(mol)
+    assert mol is not None
 
     TEMP_XYZ = '%s.in' % args.sdffile
     os.environ['QCCMD'] = find_executable('qchem')
     # with enter_temp_directory():
     with open(TEMP_XYZ, 'w') as f:
         f.write(qcin(mol))
-        
-    qchem = QChem(TEMP_XYZ, clean=False)
+
+    qchem = QChem(TEMP_XYZ, qcdir=('qchem-' + str(uuid4()) + '.d'))
     os.makedirs(qchem.qcdir)
 
     qchem.sp()
@@ -55,10 +58,6 @@ def qchem_sucess(qcout):
 
 def protonate(mol, pH=7.4):
     babel = find_executable('obabel')
-    assert babel is not None
-    os.environ['BABEL_LIBDIR'] = os.path.join(os.path.dirname(babel), '..', 'lib', 'openbabel', '2.3.2')
-    os.environ['BABEL_DATADIR'] = os.path.join(os.path.dirname(babel), '..', 'share', 'openbabel', '2.3.2')
-
     # obabel's pH conversion can _hang_ (spin-lock) indefinitely when converting
     # sdf->sdf with -p 7.4, but mol2 output appears to fix the problem.
     comm = subprocess.Popen([babel, '-i', 'sdf', '-o', 'mol2', '-p', str(pH)],
@@ -69,31 +68,26 @@ def protonate(mol, pH=7.4):
 
     molout = Chem.MolFromMol2Block(stdout, sanitize=True, removeHs=False)
     if molout is None:
-        # some molecules fail to sanitize
-        molout = Chem.MolFromMol2Block(stdout, sanitize=False, removeHs=False)
-    if molout.GetNumAtoms() == mol.GetNumAtoms():
-        molout = mol
+        warnings.warn('Molecule failed to sanitize!')
+        return mol
 
     return molout
 
 
 def qcin(mol, comment=''):
-    def mol2xyz(mol):
-        conf = mol.GetConformer()
-        charge = sum(atom.GetFormalCharge() for atom in mol.GetAtoms())
-        spin = (sum(atom.GetAtomicNum() for atom in mol.GetAtoms()) + charge) % 2
-        mult = int(2*spin + 1)
-
-        lines = []
-        lines.append('%s %s' % (charge, mult))
-        for i, atom in enumerate(mol.GetAtoms()):
-            pos = conf.GetAtomPosition(i)
-            lines.append('%4s %10.5f %10.5f %10.5f' % (
-                    atom.GetSymbol(), pos.x, pos.y, pos.z))
-        return lines
+    # use obabel to convert the molecule into XYZ format (+charge/mutiplicity). This
+    # avoids getting the charge/multiplicity ourselves.
+    babel = find_executable('obabel')
+    comm = subprocess.Popen([babel, '-i', 'sdf', '-o', 'qcin'],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = comm.communicate(Chem.MolToMolBlock(mol, includeStereo=True, kekulize=False), timeout=10)
+    if stderr.strip() != '1 molecule converted':
+        raise ValueError('obabel error: %s' % stderr)
+    qclines = [e.strip() for e in stdout.splitlines()]
+    mollines = list(iterbetween(qclines, '$molecule', '$end'))
 
     lines = ['$comment', str(comment), '$end', '']
-    lines.extend(['$molecule'] + mol2xyz(mol) + ['$end', ''])
+    lines.extend(['$molecule'] + mollines + ['$end', ''])
 
     lines.extend([
         '$rem',
@@ -107,11 +101,29 @@ def qcin(mol, comment=''):
         'incfock          0',
         'sym_ignore       true',
         'unrestricted     true',
+        'mem_total        4000',
         '$end', ''
     ])
     return '\n'.join(lines)
 
 
+def _setup_obabel():
+    babel = find_executable('obabel')
+    assert babel is not None
+    os.environ['BABEL_LIBDIR'] = os.path.join(os.path.dirname(babel), '..', 'lib', 'openbabel', '2.3.2')
+    os.environ['BABEL_DATADIR'] = os.path.join(os.path.dirname(babel), '..', 'share', 'openbabel', '2.3.2')
+
+
+def iterbetween(iterable, starttag, endtag):
+    """
+    Iterator for the elements in iterable _after_ the first element which
+    equals `starttag` and before the last element which equals `endtag`
+    """
+    return itertools.takewhile(lambda x: x != endtag,
+             itertools.islice(
+                 itertools.dropwhile(lambda x: x != starttag, iterable),
+                 1, None))
 
 if __name__ == '__main__':
+    _setup_obabel()
     main()

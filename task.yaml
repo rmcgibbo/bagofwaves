@@ -7,5 +7,6 @@ output_files:
 job:
   - $HOME/projects/bagofwaves/download-cid `echo "$MONGOTASK_RECORD" | jq .cid` structure.sdf
   - $HOME/projects/bagofwaves/run-qchem structure.sdf output.qcout
-  - tail output.qcout
+  - tail -n 25 output.qcout
+  - DIRNAME=$(python -c 'import os; print os.path.basename(os.path.abspath("."))'); cd ..; tar -czf $DIRNAME.tgz $DIRNAME; cp $DIRNAME.tgz $HOME/tarfiles/
   - gzip output.qcout
