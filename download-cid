@@ -1,4 +1,12 @@
 #!/usr/bin/env python
+"""
+Download a compound from PubChem (3D) to an SDF file.
+
+Note: For structures that do not contain a 3D structure,
+in pubchem, we will attempt to resolve them by getting
+the structure of the parent compound.
+
+"""
 from __future__ import print_function, absolute_import
 import json
 import pubchem_utils
@@ -8,13 +16,12 @@ from six.moves.urllib.error import HTTPError
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('mongotask_record', type=json.loads)
-    parser.add_argument('output')
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('cid')
+    parser.add_argument('outfile')
     args = parser.parse_args()
 
-    cid = args.mongotask_record['cid']
-    download_cid(cid, args.output)
+    download_cid(args.cid, args.outfile)
 
 
 def download_cid(cid, filename):

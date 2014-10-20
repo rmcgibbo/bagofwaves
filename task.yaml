@@ -1,0 +1,11 @@
+# for use with mongo-task
+# (https://github.com/rmcgibbo/mongo-task)
+
+output_files:
+  - output.qcout.gz
+
+job:
+  - $HOME/projects/bagofwaves/download-cid `echo "$MONGOTASK_RECORD" | jq .cid` structure.sdf
+  - $HOME/projects/bagofwaves/run-qchem structure.sdf output.qcout
+  - tail output.qcout
+  - gzip output.qcout
