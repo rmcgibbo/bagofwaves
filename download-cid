@@ -23,7 +23,10 @@ def main():
     download_cid(args.cid, args.outfile)
 
 
-def download_cid(cid, filename):
+def download_cid(cid, filename, attempt=0):
+    if attempt > 2:
+        raise ValueError('Download CID recursion limit reached. No 3D structure available!')
+
     pc = pubchem_utils.PubChem()
 
     try:
@@ -34,7 +37,7 @@ def download_cid(cid, filename):
         if e.code == 404:
             print('Resolving parent CID...')
             pcid = next(iter(pc.get_parent_cids([cid])))
-            return download_cid(pcid, filename)
+            return download_cid(pcid, filename, attempt=attempt+1)
     print('Output (SDF) saved to %s' % filename)
 
 
